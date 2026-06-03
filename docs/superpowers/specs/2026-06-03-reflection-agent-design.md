@@ -1,16 +1,18 @@
 # MyReflectionAgent 设计文档
 
 **日期：** 2026-06-03  
-**场景：** 代码生成（正确性 + 可读性 + 性能三维迭代优化）
+**场景：** 通用（默认内置代码生成提示词，可通过 `custom_prompts` 切换至任意场景）
 
 ---
 
 ## 1. 背景
 
-`hello_agents` 框架已提供 `ReflectionAgent` 基类，实现了「初始生成 → 反思 → 优化」的迭代循环。`MyReflectionAgent` 在此基础上专注于**代码生成**场景，并解决基类在代码任务上的两个不足：
+`hello_agents` 框架已提供 `ReflectionAgent` 基类，实现了「初始生成 → 反思 → 优化」的迭代循环。`MyReflectionAgent` 是面向**通用场景**的增强版本，适用于代码生成、文章写作、分析报告等任何需要迭代优化的任务，并解决基类的两个不足：
 
-1. 提示词为通用文本，缺少代码评审的结构化维度
+1. 提示词为极简通用文本，缺少结构化的评审维度
 2. refine 阶段仅传入上一轮结果，丢失了历轮反馈上下文
+
+默认内置**代码生成**提示词（含正确性/可读性/性能三维评审）；用户可通过 `custom_prompts` 参数传入任意场景的提示词替换默认值。
 
 ---
 
@@ -34,6 +36,8 @@ MyReflectionAgent(ReflectionAgent)
 ---
 
 ## 3. 提示词设计
+
+默认提示词针对代码生成场景；用户可通过 `custom_prompts={"initial": ..., "reflect": ..., "refine": ...}` 完整替换为其他场景（如文章写作、报告分析等）。
 
 ### CODE_INITIAL_PROMPT
 ```
@@ -120,9 +124,10 @@ class MyReflectionAgent(ReflectionAgent):
 
 ## 7. 测试场景
 
-| 测试 | 验证点 |
-|---|---|
-| 基本代码生成 | run() 返回非空字符串 |
-| 早停触发 | 迭代次数 < max_iterations |
-| 完整迭代 | `get_iteration_history()` 长度 == max_iterations |
-| 自定义 stop_keywords | 自定义关键词触发早停 |
+| 测试 | 场景 | 验证点 |
+|---|---|---|
+| 默认提示词代码生成 | 代码生成 | run() 返回非空字符串 |
+| 自定义提示词通用任务 | 文章/分析 | custom_prompts 生效，run() 正常返回 |
+| 早停触发 | 任意 | 迭代次数 < max_iterations |
+| 完整迭代 | 任意 | `get_iteration_history()` 长度 == max_iterations |
+| 自定义 stop_keywords | 任意 | 自定义关键词触发早停 |
