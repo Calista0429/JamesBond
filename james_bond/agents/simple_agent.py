@@ -148,17 +148,12 @@ class MySimpleAgent(SimpleAgent):
             return f"❌ 错误:未配置工具注册表"
 
         try:
-            # 智能参数解析
-            if tool_name == 'calculator':
-                # 计算器工具直接传入表达式
-                result = self.tool_registry.execute_tool(tool_name, parameters)
-            else:
-                # 其他工具使用智能参数解析
-                param_dict = self._parse_tool_parameters(tool_name, parameters)
-                tool = self.tool_registry.get_tool(tool_name)
-                if not tool:
-                    return f"❌ 错误:未找到工具 '{tool_name}'"
-                result = tool.run(param_dict)
+            # 统一走智能参数解析，再交给工具执行
+            tool = self.tool_registry.get_tool(tool_name)
+            if not tool:
+                return f"❌ 错误:未找到工具 '{tool_name}'"
+            param_dict = self._parse_tool_parameters(tool_name, parameters)
+            result = tool.run(param_dict)
 
             return f"🔧 工具 {tool_name} 执行结果:\n{result}"
 
@@ -209,15 +204,11 @@ class MySimpleAgent(SimpleAgent):
 
         messages.append({"role": "user", "content": input_text})
 
-        # 流式调用LLM
+        # 流式调用LLM（框架层 think() 已负责实时打印，此处只收集完整响应）
         full_response = ""
-        print("📝 实时响应: ", end="")
         for chunk in self.llm.stream_invoke(messages, **kwargs):
             full_response += chunk
-            print(chunk, end="", flush=True)
             yield chunk
-
-        print()  # 换行
 
         # 保存完整对话到历史记录
         self.add_message(Message(input_text, "user"))
