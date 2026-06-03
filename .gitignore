@@ -1,0 +1,5 @@
+*.env
+*_checkpoint.ipynb
+*.vscode
+.claude
+__pycache__
