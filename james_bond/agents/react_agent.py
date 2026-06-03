@@ -3,22 +3,33 @@ import re
 from typing import Optional, List, Tuple
 from hello_agents import ReActAgent, HelloAgentsLLM, Config, Message, ToolRegistry
 
-MY_REACT_PROMPT = """你是一个推理与行动Agent，通过逐步思考和工具调用解决问题。
+MY_REACT_PROMPT = """你是一个具备推理和行动能力的AI助手。你可以通过思考分析问题，然后调用合适的工具来获取信息，最终给出准确的答案。
 
 ## 可用工具
 {tools}
 
-## 回应格式（每次只输出一步）
-Thought: 分析当前状态，决定下一步
-Action: tool_name[input] 或 Finish[最终答案]
+## 工作流程
+请严格按照以下格式进行回应，每次只能执行一个步骤:
+
+Thought: 分析当前问题，思考需要什么信息或采取什么行动。
+Action: 选择一个行动，格式必须是以下之一:
+- `{{tool_name}}[{{tool_input}}]` - 调用指定工具
+- `Finish[最终答案]` - 当你有足够信息给出最终答案时
+
+## 重要提醒
+1. 每次回应必须包含Thought和Action两部分
+2. 工具调用的格式必须严格遵循:工具名[参数]
+3. 只有当你确信有足够信息回答问题时，才使用Finish
+4. 如果工具返回的信息不够，继续使用其他工具或相同工具的不同参数
 
 ## 当前任务
-Question: {question}
+**Question:** {question}
 
 ## 执行历史
 {history}
 
-开始推理："""
+现在开始你的推理和行动:
+"""
 
 class MyReActAgent(ReActAgent):
     """
@@ -69,22 +80,61 @@ class MyReActAgent(ReActAgent):
             # 3. 解析输出
             thought, action = self._parse_output(response_text)
 
+            if thought:
+                print(f"🤔 思考: {thought}")
+
+            if not action:
+                # 已有历史时，LLM 可能直接给出了自由格式的最终答案
+                if self.current_history:
+                    print("💡 未检测到 Action 格式，将 LLM 响应作为最终答案")
+                    final_answer = response_text.strip()
+                    self.add_message(Message(input_text, "user"))
+                    self.add_message(Message(final_answer, "assistant"))
+                    return final_answer
+                print("⚠️ 未解析到有效 Action，记录并继续")
+                self.current_history.append(f"Note: step {current_step} produced no valid action")
+                continue
+
             # 4. 检查完成条件
-            if action and action.startswith("Finish"):
+            if action.startswith("Finish"):
                 final_answer = self._parse_action_input(action)
+                print(f"🎉 最终答案: {final_answer}")
                 self.add_message(Message(input_text, "user"))
                 self.add_message(Message(final_answer, "assistant"))
                 return final_answer
 
             # 5. 执行工具调用
-            if action:
-                tool_name, tool_input = self._parse_action(action)
-                observation = self.tool_registry.execute_tool(tool_name, tool_input)
-                self.current_history.append(f"Action: {action}")
-                self.current_history.append(f"Observation: {observation}")
+            tool_name, tool_input = self._parse_action(action)
+            if not tool_name:
+                self.current_history.append(f"Observation: 无效的 Action 格式: {action}")
+                continue
+            print(f"🎬 行动: {tool_name}[{tool_input}]")
+            observation = self.tool_registry.execute_tool(tool_name, tool_input)
+            print(f"👀 观察: {observation}")
+            self.current_history.append(f"Action: {action}")
+            self.current_history.append(f"Observation: {observation}")
 
         # 达到最大步数
         final_answer = "抱歉，我无法在限定步数内完成这个任务。"
         self.add_message(Message(input_text, "user"))
         self.add_message(Message(final_answer, "assistant"))
         return final_answer
+
+    def _parse_output(self, text: str):
+        """覆盖基类：支持多行 Action 内容"""
+        import re
+        thought_match = re.search(r"Thought:\s*(.*?)(?=\nAction:|\Z)", text, re.DOTALL)
+        action_match = re.search(r"Action:\s*(.*)", text, re.DOTALL)
+        thought = thought_match.group(1).strip() if thought_match else None
+        action = action_match.group(1).strip() if action_match else None
+        return thought, action
+
+    def _parse_action_input(self, action_text: str) -> str:
+        """覆盖基类：使用 DOTALL 支持跨行答案，无闭合括号时取全部内容"""
+        import re
+        match = re.match(r"\w+\[(.*)\]", action_text, re.DOTALL)
+        if match:
+            return match.group(1).strip()
+        # 没有闭合括号时，取 '[' 后的全部内容
+        bracket_match = re.match(r"\w+\[(.*)", action_text, re.DOTALL)
+        return bracket_match.group(1).strip() if bracket_match else action_text.strip()
